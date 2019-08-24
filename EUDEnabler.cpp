@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <cstdint>
 
 #define EUD_CONDITIONS_PTR 0x00515A98
 #define EUD_ACTIONS_PTR 0x00512800
@@ -21,51 +22,66 @@
 #define SUBTRACT 9
 #define EXACTLY 10
 
-typedef int(__fastcall *actF)(void*);
-typedef int(__fastcall *condF)(void*);
+#define ADDR_READFILE 0x004FE3FC
+
+typedef int32_t int32;
+typedef uint32_t uint32;
+typedef uint16_t uint16;
+typedef uint8_t uint8;
+
+typedef uint32(__fastcall *actF)(void*);
+typedef uint32(__fastcall *condF)(void*);
+
+typedef bool(__stdcall *SFileReadFileF)(HANDLE hFile, LPVOID lpBuffer, DWORD dwToRead, DWORD * pdwRead, LPVOID lpOverlapped);
 
 struct ActionData {
-	unsigned int SourceLocation;
-	unsigned int TriggerText;
-	unsigned int WAVStringNumber;
-	unsigned int Time;
-	unsigned int Player;
-	unsigned int Group;
-	unsigned short UnitType;
-	unsigned char ActionType;
-	unsigned char UnitsNumber;
-	unsigned char flags;
-	unsigned char Unused[3];
+	uint32 SourceLocation;
+	uint32 TriggerText;
+	uint32 WAVStringNumber;
+	uint32 Time;
+	uint32 Player;
+	uint32 Group;
+	uint16 UnitType;
+	uint8 ActionType;
+	uint8 UnitsNumber;
+	uint8 flags;
+	uint8 Unused[3];
 };
 
 struct ConditionData {
-	unsigned int locationNumber;
-	unsigned int groupNumber;
-	unsigned int Quantifier;
-	unsigned short UnitID;
-	unsigned char Comparision;
-	unsigned char ConditionType;
-	unsigned char Resource;
-	unsigned char flags;
-	unsigned short Unused;
+	uint32 locationNumber;
+	uint32 groupNumber;
+	uint32 Quantifier;
+	uint16 UnitID;
+	uint8 Comparision;
+	uint8 ConditionType;
+	uint8 Resource;
+	uint8 flags;
+	uint16 Unused;
 
 };
 
 static actF originalAction;
 static condF originalCondition;
+static SFileReadFileF originalReadFile;
 
-int __fastcall eud_cond(ConditionData* condition) {
+uint32 __fastcall eud_cond(ConditionData* condition) {
 	if (condition->ConditionType == COND_DEATHS) {
-		unsigned int playerID = condition->groupNumber;
-		unsigned int unitID = condition->UnitID;
-		unsigned int comparator = condition->Comparision;
-		unsigned int condValue = condition->Quantifier;
+		uint32 playerID = condition->groupNumber;
+		uint32 unitID = condition->UnitID;
+		uint32 comparator = condition->Comparision;
+		uint32 condValue = condition->Quantifier;
+		uint32 mask = condition->locationNumber;
 
 		if (playerID == CURRENT_PLAYER) {
-			playerID = *((unsigned int*)EUD_CURRENT_PLAYER);
+			playerID = *((uint32*)EUD_CURRENT_PLAYER);
 		}
-		unsigned int offset = EUD_DEATHS + (((unitID * 12) + playerID) * 4);
-		unsigned int value = *((unsigned int*)offset);
+		uint32 offset = EUD_DEATHS + (((unitID * 12) + playerID) * 4);
+		uint32 value = *((uint32*)offset);
+
+		if (mask > 0) {
+			value &= mask;
+		}
 		if (comparator == AT_LEAST) {
 			return value >= condValue;
 		} else if (comparator == AT_MOST) {
@@ -77,42 +93,99 @@ int __fastcall eud_cond(ConditionData* condition) {
 	return originalCondition(condition);
 }
 
-int __fastcall eud_act(ActionData* action) {
+uint32 __fastcall eud_act(ActionData* action) {
 	if (action->ActionType == ACT_SET_DEATHS) {
-		unsigned int playerID = action->Player;
-		unsigned int unitID = action->UnitType;
-		unsigned int number = action->Group;
-		unsigned int modifier = action->UnitsNumber;
+		uint32 playerID = action->Player;
+		uint32 unitID = action->UnitType;
+		uint32 number = action->Group;
+		uint32 modifier = action->UnitsNumber;
+		uint32 mask = action->SourceLocation;
 
 		if (playerID == CURRENT_PLAYER) {
-			playerID = *((unsigned int*)EUD_CURRENT_PLAYER);
+			playerID = *((uint32*)EUD_CURRENT_PLAYER);
 		}
-		unsigned int offset = EUD_DEATHS + (((unitID * 12) + playerID) * 4);
+		uint32 offset = EUD_DEATHS + (((unitID * 12) + playerID) * 4);
+		uint32 currentValue = *((uint32*)offset);
+
 		if (modifier == SET_TO) {
-			*((unsigned int*)offset) = number;
+			currentValue = (currentValue & (~mask)) | (number & mask);
 		} else if (modifier == ADD) {
-			unsigned int currentValue = *((unsigned int*)offset);
-			currentValue += number;
-			*((unsigned int*)offset) = currentValue;
+			currentValue = (currentValue & (~mask)) | ((currentValue + number) & mask);
 		} else if (modifier == SUBTRACT) {
-			unsigned int currentValue = *((unsigned int*)offset);
-			currentValue -= number;
-			*((unsigned int*)offset) = currentValue;
+			currentValue = (currentValue & (~mask)) | ((currentValue + number) & mask);
 		}
+		*((uint32*)offset) = currentValue;
 	}
 	return originalAction(action);
 }
 
-void attach() {
-	originalCondition = (condF) *((unsigned int*)ADDR_COND_DEATHS);
-	originalAction = (actF) *((unsigned int*)ADDR_ACT_SET_DEATHS);
-	*((unsigned int*)ADDR_COND_DEATHS) = (unsigned int)&eud_cond;
-	*((unsigned int*)ADDR_ACT_SET_DEATHS) = (unsigned int)&eud_act;
+static const char* SECTIONS[] = { "TYPE", "VER ", "IVER", "IVE2", "VCOD", "IOWN", "OWNR", "ERA ", "DIM ", "SIDE", "MTXM", "PUNI", "UPGR", "PTEC", "UNIT", "ISOM", "TILE", "DD2 ", "THG2", "MASK", "STR ", "UPRP", "UPUS", "MRGN", "TRIG", "MBRF", "SPRP", "FORC", "WAV ", "UNIS", "UPGS", "TECS", "SWNM", "COLR", "PUPx", "PTEx", "UNIx", "UPGx", "TECx" };
+
+void patchFile(uint8* data, int32 length) {
+	unsigned char* ptr = (unsigned char*) data;
+	while (length > 8) {
+		uint8 sectionName[5] = { 0, 0, 0, 0, 0 };
+		memcpy(sectionName, ptr, 4);
+		ptr += 4;
+		length -= 4;
+		uint32 sectionLength = *((uint32*)ptr);
+		ptr += 4;
+		length -= 4;
+		if (length >= sectionLength) {
+			if (!memcmp(sectionName, "VER ", 4)) {
+				uint16* typePtr = (uint16*)ptr;
+				if ((*typePtr) == 206 || (*typePtr) == 60 || (*typePtr) == 64) {
+					*typePtr = (*typePtr) - 1;
+				}
+				ptr += 2;
+			} else {
+				length -= sectionLength;
+			}
+		} else {
+			return;
+		}
+	}
+}
+
+bool __stdcall SFileReadFile(HANDLE hFile, LPVOID lpBuffer, DWORD dwToRead, DWORD * pdwRead, LPVOID lpOverlapped) {
+	if (originalReadFile(hFile, lpBuffer, dwToRead, pdwRead, lpOverlapped)) {
+		if(pdwRead != nullptr){
+			DWORD read = *pdwRead;
+			if (read > 4) { // Could verify CHK
+				uint8 sectionName[5] = { 0, 0, 0, 0, 0 };
+				memcpy(sectionName, lpBuffer, 4);
+				for (uint32 i = 0; i < sizeof(SECTIONS) / sizeof(char*); i++) {
+					if (!memcmp(SECTIONS[i], sectionName, 4)) { // Possible CHK, Patch
+						patchFile((uint8*)lpBuffer, read);
+						return true;
+					}
+				}
+			}
+		}
+		return true;
+	}
+	return false;
+}
+
+bool attach() {
+	DWORD previousProtection;
+	if (!VirtualProtect((LPVOID)ADDR_READFILE, 4, PAGE_EXECUTE_READWRITE, &previousProtection)) {
+		return false;
+	}
+
+	originalReadFile = (SFileReadFileF) *((uint32*)ADDR_READFILE);
+	originalCondition = (condF) *((uint32*)ADDR_COND_DEATHS);
+	originalAction = (actF) *((uint32*)ADDR_ACT_SET_DEATHS);
+
+	*((uint32*)ADDR_READFILE) = (uint32)&SFileReadFile;
+	*((uint32*)ADDR_COND_DEATHS) = (uint32)&eud_cond;
+	*((uint32*)ADDR_ACT_SET_DEATHS) = (uint32)&eud_act;
 }
 
 void detach() {
-	*((unsigned int*)ADDR_COND_DEATHS) = (unsigned int)originalCondition;
-	*((unsigned int*)ADDR_ACT_SET_DEATHS) = (unsigned int)originalAction;
+	*((int32*)ADDR_READFILE) = (int32)originalReadFile;
+	*((int32*)ADDR_COND_DEATHS) = (int32)originalCondition;
+	*((int32*)ADDR_ACT_SET_DEATHS) = (int32)originalAction;
 }
 
 #ifdef BUILD_CHAOS_PLUGIN
@@ -170,8 +243,6 @@ bool isInSc() {
 
 #endif
 
-
-
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
 #ifdef BUILD_CHAOS_PLUGIN
@@ -203,8 +274,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 #define STARCRAFTBUILD 13
 
 struct ExchangeData {
-	int iPluginAPI;
-	int iStarCraftBuild;
+	int32 iPluginAPI;
+	int32 iStarCraftBuild;
 	BOOL bNotSCBWmodule;
 	BOOL bConfigDialog;
 };
