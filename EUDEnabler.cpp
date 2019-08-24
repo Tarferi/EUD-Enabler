@@ -73,7 +73,9 @@ uint32 __fastcall eud_cond(ConditionData* condition) {
 		uint32 condValue = condition->Quantifier;
 		uint32 mask = condition->locationNumber;
 
-		mask = mask == 0 ? ~mask : mask;
+		uint8 UnusedPtr[2] = { (uint8)((condition->Unused >> 8) & 0xff),(uint8)(condition->Unused & 0xff) };
+
+		mask = mask == 0 && UnusedPtr[0] == (uint8) 'S' && UnusedPtr[1] == (uint8) 'C' ? ~mask : mask;
 
 		if (playerID == CURRENT_PLAYER) {
 			playerID = *((uint32*)EUD_CURRENT_PLAYER);
@@ -101,7 +103,10 @@ uint32 __fastcall eud_act(ActionData* action) {
 		uint32 modifier = action->UnitsNumber;
 		uint32 mask = action->SourceLocation;
 
-		mask = mask == 0 ? ~mask : mask;
+		uint8 UnusedPtr[2] = { action->Unused[1], action->Unused[2] };
+
+		mask = mask == 0 && UnusedPtr[0] == (uint8) 'S' && UnusedPtr[1] == (uint8) 'C' ? ~mask : mask;
+
 
 		if (playerID == CURRENT_PLAYER) {
 			playerID = *((uint32*)EUD_CURRENT_PLAYER);
@@ -130,7 +135,7 @@ void patchFile(uint8* data, int32 length) {
 		memcpy(sectionName, ptr, 4);
 		ptr += 4;
 		length -= 4;
-		uint32 sectionLength = *((uint32*)ptr);
+		int32 sectionLength = *((int32*)ptr);
 		ptr += 4;
 		length -= 4;
 		if (length >= sectionLength) {
@@ -182,6 +187,7 @@ bool attach() {
 	*((uint32*)ADDR_READFILE) = (uint32)&SFileReadFile;
 	*((uint32*)ADDR_COND_DEATHS) = (uint32)&eud_cond;
 	*((uint32*)ADDR_ACT_SET_DEATHS) = (uint32)&eud_act;
+	return true;
 }
 
 void detach() {
