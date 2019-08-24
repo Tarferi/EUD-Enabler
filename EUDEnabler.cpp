@@ -113,7 +113,7 @@ uint32 __fastcall eud_act(ActionData* action) {
 		}
 		uint32 offset = EUD_DEATHS + (((unitID * 12) + playerID) * 4);
 		uint32 nextValue = *((uint32*)offset);
-		uint32 originalValue = originalValue & (~mask);
+		uint32 originalValue = nextValue & (~mask);
 		if (modifier == SET_TO) {
 			nextValue = number;
 		} else if (modifier == ADD) {
