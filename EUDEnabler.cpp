@@ -73,9 +73,7 @@ uint32 __fastcall eud_cond(ConditionData* condition) {
 		uint32 condValue = condition->Quantifier;
 		uint32 mask = condition->locationNumber;
 
-		uint8 UnusedPtr[2] = { (uint8)((condition->Unused >> 8) & 0xff),(uint8)(condition->Unused & 0xff) };
-
-		mask = UnusedPtr[0] == (uint8) 'S' && UnusedPtr[1] == (uint8) 'C' ? mask : 0xFFFFFFFF;
+		mask = (condition->Unused & 0xFF) == 'S' && condition->Unused >> 8 == 'C' ? mask : 0xFFFFFFFF;
 
 		if (playerID == CURRENT_PLAYER) {
 			playerID = *((uint32*)EUD_CURRENT_PLAYER);
