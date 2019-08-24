@@ -121,9 +121,10 @@ uint32 __fastcall eud_act(ActionData* action) {
 		} else if (modifier == SUBTRACT) {
 			nextValue -= number;
 		}
-		*((uint32*)offset) = originalValue | (nextValue & mask);
+		nextValue =  originalValue | (nextValue & mask);
+		*((uint32*)offset) = nextValue;
 	}
-	return originalAction(action);
+	return true;
 }
 
 static const char* SECTIONS[] = { "TYPE", "VER ", "IVER", "IVE2", "VCOD", "IOWN", "OWNR", "ERA ", "DIM ", "SIDE", "MTXM", "PUNI", "UPGR", "PTEC", "UNIT", "ISOM", "TILE", "DD2 ", "THG2", "MASK", "STR ", "UPRP", "UPUS", "MRGN", "TRIG", "MBRF", "SPRP", "FORC", "WAV ", "UNIS", "UPGS", "TECS", "SWNM", "COLR", "PUPx", "PTEx", "UNIx", "UPGx", "TECx" };
