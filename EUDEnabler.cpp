@@ -73,15 +73,15 @@ uint32 __fastcall eud_cond(ConditionData* condition) {
 		uint32 condValue = condition->Quantifier;
 		uint32 mask = condition->locationNumber;
 
+		mask = mask == 0 ? ~mask : mask;
+
 		if (playerID == CURRENT_PLAYER) {
 			playerID = *((uint32*)EUD_CURRENT_PLAYER);
 		}
 		uint32 offset = EUD_DEATHS + (((unitID * 12) + playerID) * 4);
 		uint32 value = *((uint32*)offset);
 
-		if (mask > 0) {
-			value &= mask;
-		}
+		value &= mask;
 		if (comparator == AT_LEAST) {
 			return value >= condValue;
 		} else if (comparator == AT_MOST) {
@@ -101,20 +101,22 @@ uint32 __fastcall eud_act(ActionData* action) {
 		uint32 modifier = action->UnitsNumber;
 		uint32 mask = action->SourceLocation;
 
+		mask = mask == 0 ? ~mask : mask;
+
 		if (playerID == CURRENT_PLAYER) {
 			playerID = *((uint32*)EUD_CURRENT_PLAYER);
 		}
 		uint32 offset = EUD_DEATHS + (((unitID * 12) + playerID) * 4);
-		uint32 currentValue = *((uint32*)offset);
-
+		uint32 nextValue = *((uint32*)offset);
+		uint32 originalValue = originalValue & (~mask);
 		if (modifier == SET_TO) {
-			currentValue = (currentValue & (~mask)) | (number & mask);
+			nextValue = number;
 		} else if (modifier == ADD) {
-			currentValue = (currentValue & (~mask)) | ((currentValue + number) & mask);
+			nextValue += number;
 		} else if (modifier == SUBTRACT) {
-			currentValue = (currentValue & (~mask)) | ((currentValue + number) & mask);
+			nextValue -= number;
 		}
-		*((uint32*)offset) = currentValue;
+		*((uint32*)offset) = originalValue | (nextValue & mask);
 	}
 	return originalAction(action);
 }
